@@ -17,6 +17,12 @@ Double-click `index.html` (Chrome, Edge or Firefox). Nothing to install, works o
 
 **Levitate:** draw the rising chevrons to float for 2.5 seconds; enemy shots, breath and ground attacks miss you.
 
+**Map & quest guide:** press M for the castle map and this area's map (minimap top right). The ★, the golden light pillar and the arrow at the top of the screen lead to your tracked quest's next step (choose it with 📍 Track in the Quest Log); in another area the guide points to the right door.
+
+**Shrines ✦:** one per area. Touch one with E to attune it, then travel to any attuned shrine from a shrine or the map. Add shrines in `SHRINES` (`js/data.js`).
+
+**Doors** glow so you can spot them from afar; usable gates glow in their state colour (gold = closed/locked, blue = sealed, purple = boss).
+
 **Gold & shop:** beaten enemies, quests and chests give gold. Talk to Tilly Wrenfeather (Great Hall) to buy staffs, hats and Health/Mana Potions (keys 1 and 2) or sell gear for 40% of its price. Every item shows green/red differences against what you wear. Shop stock lives in `SHOPS` (`js/data.js`).
 
 **Weaknesses:** nameplates show what an enemy is weak to; in battle a line lists which of your spells use that element.

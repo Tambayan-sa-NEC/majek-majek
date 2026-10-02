@@ -14,7 +14,7 @@
  * ===================================================================== */
 (function (global) {
   'use strict';
-  const { AREAS, NPCS, ITEMS, SECRETS, SPELLS, QUESTS } = global.GameData;
+  const { AREAS, NPCS, ITEMS, SECRETS, SPELLS, QUESTS, SHRINES } = global.GameData;
   const S = global.GameState, Q = global.Quests, M = global.Models, FX = global.FX;
   let THREE;
 
@@ -144,6 +144,8 @@
       this.refreshPickups();
       (def.chests || []).forEach(c => this.addChest(c));
       def.secrets.forEach(s => this.addSecret(s));
+      if (!def.arena) Object.entries(SHRINES).filter(([, sh]) => sh.area === id).forEach(([sid, sh]) => this.addShrine(sid, sh));
+      this.beacon = null; this.guide = null;
 
       const sp = spawn || def.spawn;
       let face = yaw;
@@ -315,16 +317,96 @@
       const veil = M.mesh(new THREE.PlaneGeometry(3.1, 3.9), new THREE.MeshBasicMaterial({ color: 0xbfd8e8, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }), 0, 1.95, 0);
       g.add(veil);
       const r = this.rune(d.tint || 0xbfd8e8, 1.2); r.position.set(0, 4.2, 0.45); g.add(r);
+      // highlight: glowing frame edges + floor glow so doors stand out from far away
+      const tint = d.tint || 0xbfd8e8, edge = M.glowMat(tint, 1.8);
+      g.add(M.mesh(new THREE.BoxGeometry(0.08, 3.9, 0.9), edge, -1.53, 1.95, 0));
+      g.add(M.mesh(new THREE.BoxGeometry(0.08, 3.9, 0.9), edge, 1.53, 1.95, 0));
+      g.add(M.mesh(new THREE.BoxGeometry(3.14, 0.08, 0.9), edge, 0, 3.9, 0));
+      const glowFloor = M.mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }), 0, 0.03, 0);
+      glowFloor.rotation.x = -Math.PI / 2; g.add(glowFloor);
       g.position.set(d.x, 0, d.z);
       if (Math.abs(d.x) > Math.abs(d.z) * (this.area.size[1] / this.area.size[0])) g.rotation.y = Math.PI / 2;
       this.areaGroup.add(g);
-      const lab = M.label(d.label, '#bfe6ff'); lab.scale.set(2.4, 0.75, 1); lab.position.set(d.x, 3.3, d.z); this.areaGroup.add(lab);
+      const lab = M.label(`🚪 ${d.label}`, '#bfe6ff'); lab.scale.set(2.4, 0.75, 1); lab.position.set(d.x, 4.9, d.z); this.areaGroup.add(lab);
       const pos = new THREE.Vector3(d.x, 0, d.z);
       this.animated.push(t => {
-        const near = global.Player ? Math.max(0, 1 - global.Player.pos.distanceTo(pos) / 4) : 0;
+        const dist = global.Player ? global.Player.pos.distanceTo(pos) : 10;
+        const near = Math.max(0, 1 - dist / 4);
         veil.material.opacity = 0.2 + Math.sin(t * 2) * 0.06 + near * 0.15;
+        edge.emissiveIntensity = 1.4 + Math.sin(t * 2.5) * 0.5;
+        glowFloor.material.opacity = 0.18 + Math.sin(t * 2.5) * 0.08;
+        const k = Math.max(0.7, Math.min(2.4, dist / 9));          // label keeps a readable size at any distance
+        lab.scale.set(2.4 * k, 0.75 * k, 1);
       });
       this.interactables.push({ pos, radius: 3, label: `Enter: ${d.label}`, kind: 'door', action: () => this.travel(d.to, d.spawn) });
+    },
+
+    /* ----------------------------- Shrines --------------------------- */
+    /** Quick-travel shrine: touch once to attune, then use it (or the map) to travel. */
+    addShrine(id, sh) {
+      const attuned = () => S.player && (S.player.shrines || []).includes(id);
+      const g = new THREE.Group(); g.position.set(sh.x, 0, sh.z);
+      const stone = M.matLite(0x8a8aa0);
+      g.add(M.mesh(new THREE.CylinderGeometry(0.9, 1.1, 0.35, 8), stone, 0, 0.17, 0));
+      g.add(M.mesh(new THREE.CylinderGeometry(0.35, 0.5, 1.0, 8), stone, 0, 0.85, 0));
+      g.add(M.mesh(new THREE.CylinderGeometry(0.6, 0.45, 0.15, 8), stone, 0, 1.4, 0));
+      const crystalM = M.glowMat(0xb88aff, 0.6);
+      const crystal = M.mesh(new THREE.OctahedronGeometry(0.32), crystalM, 0, 2.1, 0); crystal.scale.y = 1.6; g.add(crystal);
+      const ring = M.mesh(new THREE.RingGeometry(1.3, 1.45, 40), new THREE.MeshBasicMaterial({ color: 0xb88aff, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }), 0, 0.04, 0);
+      ring.rotation.x = -Math.PI / 2; g.add(ring);
+      this.areaGroup.add(g);
+      this.colliders.push({ x: sh.x, z: sh.z, r: 0.9 });
+      this.animated.push(t => {
+        const on = attuned();
+        crystal.rotation.y = t * (on ? 1.2 : 0.3); crystal.position.y = 2.1 + Math.sin(t * 2) * 0.08;
+        crystalM.emissiveIntensity = on ? 2.2 + Math.sin(t * 3) * 0.4 : 0.5;
+        ring.material.opacity = on ? 0.45 + Math.sin(t * 3) * 0.1 : 0.15;
+      });
+      const entry = { pos: new THREE.Vector3(sh.x, 0, sh.z), radius: 2.6, kind: 'shrine', shrine: id,
+        get label() { return attuned() ? `✦ Quick travel (${sh.name})` : `✦ Attune to ${sh.name}`; },
+        action: () => {
+          if (!attuned()) {
+            (S.player.shrines = S.player.shrines || []).push(id); S.save();
+            FX.rise(this._v1.set(sh.x, 0.5, sh.z), 0xb88aff, 80, 2); FX.ring(this._v1.set(sh.x, 0.2, sh.z), 0xb88aff, 2.5, 0.6);
+            S.Events.emit('toast', { text: `${sh.name} attuned! Travel here from any shrine or the map (M).`, kind: 'spell' });
+            S.Events.emit('shrines');
+          } else if (this.onShrine) this.onShrine(id);
+        } };
+      this.interactables.push(entry);
+    },
+    /** Teleport to an attuned shrine (lands a couple of metres in front of it). */
+    teleportToShrine(id) {
+      const sh = SHRINES[id];
+      if (!sh || !(S.player.shrines || []).includes(id)) return false;
+      const A = AREAS[sh.area], dz = sh.z > 0 ? -2.2 : 2.2;
+      this.travel(sh.area, [sh.x, Math.max(-A.size[1] / 2 + 1, Math.min(A.size[1] / 2 - 1, sh.z + dz))]);
+      FX.rise(this._v1.set(global.Player.pos.x, 0.3, global.Player.pos.z), 0xb88aff, 80, 2);
+      return true;
+    },
+
+    /* --------------------------- Quest beacon ------------------------- */
+    /** Show a light pillar at {x, z} in this area (or hide it with null). */
+    setGuide(target) {
+      this.guide = target;
+      if (!this.areaGroup) return;
+      if (!this.beacon) {
+        const g = new THREE.Group();
+        const beam = M.mesh(new THREE.CylinderGeometry(0.35, 0.35, 30, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }), 0, 15, 0);
+        const ring = M.mesh(new THREE.RingGeometry(0.7, 0.95, 32), new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }), 0, 0.05, 0);
+        ring.rotation.x = -Math.PI / 2;
+        const gem = M.mesh(new THREE.OctahedronGeometry(0.25), M.glowMat(0xffd84a, 2.5), 0, 3.4, 0);
+        g.add(beam, ring, gem);
+        this.areaGroup.add(g);
+        this.beacon = { g, beam, ring, gem };
+        this.animated.push(t => {
+          if (!this.beacon || this.beacon.g !== g) return;
+          const P = global.Player, near = this.guide && P ? Math.hypot(P.pos.x - this.guide.x, P.pos.z - this.guide.z) < 2.5 : false;
+          g.visible = !!this.guide && !near;
+          if (this.guide) g.position.set(this.guide.x, 0, this.guide.z);
+          ring.scale.setScalar(1 + (t * 0.8 % 1) * 0.8); ring.material.opacity = 0.6 * (1 - (t * 0.8 % 1));
+          gem.rotation.y = t * 2; gem.position.y = 3.4 + Math.sin(t * 2.5) * 0.2;
+        });
+      }
     },
 
     /* ------------------------------ Gates ---------------------------- */
@@ -368,6 +450,13 @@
         const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
         seal = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
         seal.position.set(0, 1.4, 0.12); g.add(seal);
+      }
+      if (gd.state !== 'decor') {        // highlight usable doors: glowing frame in the state's colour
+        const edge = M.glowMat(runeColor || 0xe8b860, 1.4);
+        g.add(M.mesh(new THREE.BoxGeometry(0.06, T.h, 0.56), edge, -T.w / 2 - 0.02, T.h / 2, 0));
+        g.add(M.mesh(new THREE.BoxGeometry(0.06, T.h, 0.56), edge, T.w / 2 + 0.02, T.h / 2, 0));
+        g.add(M.mesh(new THREE.BoxGeometry(T.w + 0.1, 0.06, 0.56), edge, 0, T.h + 0.01, 0));
+        this.animated.push(t => { edge.emissiveIntensity = 1.1 + Math.sin(t * 2.5) * 0.4; });
       }
       if (gd.state === 'boss') {
         const chainM = M.mat(0x3a3a3a, { metalness: 0.8 });

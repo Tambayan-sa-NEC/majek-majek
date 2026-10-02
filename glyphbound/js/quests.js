@@ -126,6 +126,48 @@
       return { speaker, pages, choices };
     },
 
+    /* ------------------------------ Guide ---------------------------- */
+    /** The quest the guide follows: the tracked one if still active, else the first active, else the first available. */
+    guideQuest() {
+      const tr = S.player.tracked;
+      if (tr && this.isActive(tr)) return byId(tr);
+      return QUESTS.find(q => this.isActive(q.id)) || QUESTS.find(q => this.stateOf(q.id) === 'available') || null;
+    },
+    /** Where to go next for a quest: { area, x, z, text }. */
+    guideFor(q) {
+      if (!q) return null;
+      const st = this.stateOf(q.id), npcAt = (id, verb) => { const n = NPCS[id]; return { area: n.area, x: n.pos[0], z: n.pos[1], text: `${verb} ${n.name}` }; };
+      if (st === 'available') return npcAt(q.giver, 'Talk to');
+      if (st === 'ready') return npcAt(q.turnIn, 'Return to');
+      if (st !== 'active') return null;
+      for (let i = 0; i < q.objectives.length; i++) {
+        const o = q.objectives[i];
+        if (this.progressOf(q, i) >= this.goalOf(o)) continue;
+        if (o.type === 'talk') return npcAt(o.target, 'Talk to');
+        for (const [aid, a] of Object.entries(global.GameData.AREAS)) {
+          if (a.arena) continue;
+          if (o.type === 'kill') { const e = a.enemies.find(x => x.type === o.target); if (e) return { area: aid, x: e.x, z: e.z, text: o.text }; }
+          if (o.type === 'collect') { const p = (a.pickups || []).find(x => x.item === o.target && !S.player.collected.includes(x.id)); if (p) return { area: aid, x: p.x, z: p.z, text: o.text }; }
+        }
+        return { area: null, text: o.text };
+      }
+      return null;
+    },
+    /** Next door to take from `from` toward area `to` (breadth-first over the doors), or null if already there. */
+    routeDoor(from, to) {
+      if (!to || from === to) return null;
+      const AREAS = global.GameData.AREAS, prev = { [from]: null }, queue = [from];
+      while (queue.length) {
+        const a = queue.shift();
+        if (a === to) break;
+        for (const d of AREAS[a].doors) if (!(d.to in prev)) { prev[d.to] = { a, d }; queue.push(d.to); }
+      }
+      if (!(to in prev)) return null;
+      let step = to;
+      while (prev[step] && prev[step].a !== from) step = prev[step].a;
+      return prev[step] ? prev[step].d : null;
+    },
+
     /** Quest marker for an NPC: '!' (new quest), '?' (turn in), '…' (in progress) or ''. */
     markerFor(npcId) {
       let mark = '';

@@ -40,6 +40,41 @@ const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  
   await page.mouse.move(640, 400); await page.mouse.down({ button: 'right' }); await page.mouse.move(740, 400, { steps: 5 }); await page.mouse.up({ button: 'right' });
   check('right-drag turns the camera', Math.abs((await ev(() => Player.yaw)) - y0) > 0.1);
 
+  /* ---- quest guide, minimap, map, shrines ---- */
+  await page.waitForTimeout(400);
+  const guide = await ev(() => ({ shown: !document.getElementById('guide').classList.contains('hidden'), text: document.getElementById('guide').textContent, beacon: !!(World.beacon && World.guide), mm: document.getElementById('minimap').width > 0 }));
+  check('quest guide: compass text, light pillar and minimap', guide.shown && /Headmistress/.test(guide.text) && /m$/.test(guide.text.trim()) && guide.beacon && guide.mm, JSON.stringify(guide));
+  const shrine = await ev(async () => {
+    const sh = GameData.SHRINES.hall_shrine, out = {};
+    for (let i = 0; i < 10 && !(out.first && /Attune/.test(out.first)); i++) { Player.place(sh.x, sh.z + 1.8, 0); await new Promise(r => setTimeout(r, 150)); out.first = World.current && World.current.label; }
+    World.interact(); await new Promise(r => setTimeout(r, 200));
+    out.attuned = GameState.player.shrines.includes('hall_shrine');
+    out.second = World.current && World.current.label;
+    World.interact(); await new Promise(r => setTimeout(r, 400));
+    out.mapOpen = !document.getElementById('map').classList.contains('hidden');
+    out.travelButtons = document.querySelectorAll('#map-travel [data-travel]').length;
+    return out;
+  });
+  check('shrine: first touch attunes it, then it opens quick travel', /Attune/.test(shrine.first || '') && shrine.attuned && /Quick travel/.test(shrine.second || '') && shrine.mapOpen && shrine.travelButtons === 1, JSON.stringify(shrine));
+  await shot('02b_map');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  const route = await ev(async () => {
+    World.travel('corridor', GameData.AREAS.corridor.spawn); await new Promise(r => setTimeout(r, 800));
+    const text = document.getElementById('guide').textContent, onDoor = World.guide && World.guide.door;
+    const sh = GameData.SHRINES.corridor_shrine;
+    for (let i = 0; i < 10 && !(World.current && /Attune/.test(World.current.label)); i++) { Player.place(sh.x + 1.8, sh.z, Math.PI / 2); await new Promise(r => setTimeout(r, 150)); }
+    World.interact();
+    return { text, onDoor, attuned: GameState.player.shrines.length };
+  });
+  check('guide in another area points to the right door', /go to The Great Hall/.test(route.text) && route.onDoor, JSON.stringify(route));
+  await page.keyboard.press('KeyM'); await page.waitForTimeout(400);
+  await page.click('#map-travel [data-travel="hall_shrine"]'); await page.waitForTimeout(800);
+  const tp = await ev(() => ({ area: World.areaId, near: Math.hypot(Player.pos.x - GameData.SHRINES.hall_shrine.x, Player.pos.z - GameData.SHRINES.hall_shrine.z) < 3.5, mapClosed: document.getElementById('map').classList.contains('hidden') }));
+  check('map (M) quick travel teleports to an attuned shrine', route.attuned === 2 && tp.area === 'great_hall' && tp.near && tp.mapClosed, JSON.stringify(tp));
+  const doorsGlow = await ev(() => { let n = 0; World.areaGroup.traverse(o => { if (o.material && o.material.emissiveIntensity > 1 && o.geometry && o.geometry.type === 'BoxGeometry' && o.geometry.parameters.width < 0.1) n++; }); return n; });
+  check('doors are highlighted with glowing frames', doorsGlow >= 4, 'glowing edges ' + doorsGlow);
+  await ev(() => Player.place(0, 6, Math.PI));
+
   /* ---- draw to cast ---- */
   const drawSpell = async (id, size = 260, cx = 640, cy = 420, steps = 2) => {
     const pts = await ev(id => GameData.SPELLS.find(s => s.id === id).points, id);

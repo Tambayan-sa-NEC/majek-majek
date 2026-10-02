@@ -336,6 +336,18 @@
     arcane: ['🔮', 'Arcane'], light: ['☀️', 'Light'], draconic: ['🐉', 'Dragon'], physical: ['✊', 'Physical'],
   };
 
+  /** Quick-travel shrines. Touch one once (E) to attune; then travel between attuned shrines from any shrine or the map (M). */
+  const SHRINES = {
+    hall_shrine:      { name: 'Hall Shrine',       area: 'great_hall', x: -14, z: 8 },
+    corridor_shrine:  { name: 'Corridor Shrine',   area: 'corridor',   x: -27, z: 2.5 },
+    courtyard_shrine: { name: 'Courtyard Shrine',  area: 'courtyard',  x: -14, z: -14 },
+    forest_shrine:    { name: 'Whisperwood Shrine', area: 'forest',    x: -26, z: -8 },
+    dungeon_shrine:   { name: 'Dungeon Shrine',    area: 'dungeon',    x: -18, z: 9 },
+  };
+
+  /** Layout of the castle on the world map (grid cells, x right / y down). */
+  const WORLD_MAP = { corridor: [1, 0], dungeon: [2, 0], great_hall: [1, 1], courtyard: [1, 2], forest: [2, 2] };
+
   /** Sell price is 40% of this. Items without a price use their rarity. */
   const ITEM_PRICES = { common: 60, rare: 180, epic: 450, legendary: 1200 };
 
@@ -657,5 +669,5 @@
     colors: [0x4a7dff, 0xff4a4a, 0x4aff8a, 0xffc94a, 0xc24aff, 0x4ae0ff],
     names: ['You', 'Ember', 'Frost', 'Moss', 'Gilt', 'Violet'] };
 
-  global.GameData = { SPELLS, STATUSES, ENEMIES, ITEMS, ITEM_PRICES, SHOPS, DROPS, ELEMENTS, NPCS, QUESTS, SECRETS, AREAS, PROGRESSION, CAST_RULES, DUEL_RULES };
+  global.GameData = { SPELLS, STATUSES, ENEMIES, ITEMS, ITEM_PRICES, SHOPS, DROPS, ELEMENTS, SHRINES, WORLD_MAP, NPCS, QUESTS, SECRETS, AREAS, PROGRESSION, CAST_RULES, DUEL_RULES };
 })(typeof window !== 'undefined' ? window : globalThis);

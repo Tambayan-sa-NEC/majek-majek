@@ -34,6 +34,8 @@
       showGhost: true,
       equipped: { staff: null, hat: null },   // equipment item ids (see ITEMS with a slot)
       gold: 0,
+      shrines: [],            // attuned quick-travel shrine ids
+      tracked: null,          // quest id followed by the guide (null = first active quest)
     };
     SPELLS.filter(s => s.unlock.type === 'start').forEach(s => p.pendingLessons.push(s.id));
     return p;

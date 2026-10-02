@@ -10,14 +10,14 @@
  * ===================================================================== */
 (function (global) {
   'use strict';
-  const { SPELLS, QUESTS, NPCS, ITEMS, STATUSES, CAST_RULES, DUEL_RULES, AREAS, SHOPS, ELEMENTS } = global.GameData;
+  const { SPELLS, QUESTS, NPCS, ITEMS, STATUSES, CAST_RULES, DUEL_RULES, AREAS, SHOPS, ELEMENTS, SHRINES, WORLD_MAP } = global.GameData;
   const S = global.GameState, Q = global.Quests, SC = global.SpellCaster;
   const $ = id => document.getElementById(id);
   const spellById = id => SPELLS.find(s => s.id === id);
   const isShown = id => !$(id).classList.contains('hidden');
   const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const hex = n => '#' + n.toString(16).padStart(6, '0');
-  const BLOCKING = ['dialogue', 'questlog', 'spellbook', 'inventory', 'shop', 'lesson', 'pause', 'menu', 'duel-setup', 'duel-result', 'how-to'];
+  const BLOCKING = ['dialogue', 'questlog', 'spellbook', 'inventory', 'shop', 'map', 'lesson', 'pause', 'menu', 'duel-setup', 'duel-result', 'how-to'];
   const RARITY = { common: '#d8d0c0', rare: '#6ab8ff', epic: '#c86aff', legendary: '#ffb040' };
   const MOBILE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
@@ -39,6 +39,8 @@
       $('btn-quests').onclick = () => this.toggleQuestLog();
       $('btn-book').onclick = () => this.toggleSpellbook();
       $('btn-inv').onclick = () => this.toggleInventory();
+      $('btn-map').onclick = () => this.toggleMap();
+      $('questlog-body').addEventListener('click', e => { const b = e.target.closest('[data-track]'); if (b) { S.player.tracked = b.dataset.track; S.save(); this.renderQuestLog(); this._guideKey = ''; } });
       $('btn-pause').onclick = () => this.togglePause();
       $('btn-flee').onclick = () => global.Game.exitArena(false);
       $('prompt').onclick = () => global.World.interact();
@@ -56,6 +58,7 @@
           else if (isShown('spellbook')) { show('spellbook', false); this.afterModal(); }
           else if (isShown('inventory')) { show('inventory', false); this.afterModal(); }
           else if (isShown('shop')) { show('shop', false); this.afterModal(); }
+          else if (isShown('map')) { show('map', false); this.afterModal(); }
           else this.togglePause();
           return;
         }
@@ -63,6 +66,7 @@
         if (e.code === 'KeyQ' || e.code === 'KeyJ') this.toggleQuestLog();
         if (e.code === 'KeyB') this.toggleSpellbook();
         if (e.code === 'KeyI') this.toggleInventory();
+        if (e.code === 'KeyM') this.toggleMap();
         if (e.code === 'KeyF' && G.arena && !G.arena.solo) G.exitArena(false);
       });
 
@@ -231,6 +235,7 @@
         this.renderThreats(C, P, W);
         if (C.mode === 'duel') this.renderDuelBars(C);
         this.renderFoeInfo(C);
+        if (now - (this._mmAt || 0) > 100) { this._mmAt = now; this.updateGuide(C, P, W); this.drawAreaMap($('minimap'), false); }
       }
       // floating numbers follow their world position
       if (this.floats.length && W && W.camera) {
@@ -321,6 +326,137 @@
       el.classList.remove('hidden');
     },
 
+    /* ------------------------- Guide & maps -------------------------- */
+    /** Work out where the tracked quest wants you to go; drives the compass, the beacon and the map star. */
+    updateGuide(C, P, W) {
+      const Q = global.Quests, el = $('guide');
+      let target = null, text = '', title = '';
+      if (C.mode === 'story' && W.area && !W.area.arena && S.player) {
+        const q = Q.guideQuest(), g = Q.guideFor(q);
+        if (q && g) {
+          title = q.title;
+          if (g.area === W.areaId) { target = { x: g.x, z: g.z }; text = g.text; }
+          else if (g.area) {
+            const d = Q.routeDoor(W.areaId, g.area);
+            if (d) { target = { x: d.x, z: d.z, door: true }; text = `${g.text} — go to ${AREAS[g.area].name} (door: ${d.label})`; }
+          } else text = g.text;
+        }
+      }
+      this.guideTarget = target;
+      W.setGuide(target);
+      if (!title) { el.classList.add('hidden'); return; }
+      el.classList.remove('hidden');
+      let arrow = '';
+      if (target) {
+        const dx = target.x - P.pos.x, dz = target.z - P.pos.z, dist = Math.hypot(dx, dz);
+        const rot = Math.atan2(-Math.sin(P.yaw), -Math.cos(P.yaw)) - Math.atan2(dx, dz);
+        arrow = `<span class="garrow" style="transform:rotate(${rot.toFixed(2)}rad)">➤</span> <span class="gdist">${Math.round(dist)} m</span>`;
+      }
+      const html = `<span class="gtitle">📜 ${esc(title)}</span> ${esc(text)} ${arrow}`;
+      if (el._h !== html) { el._h = html; el.innerHTML = html; }
+    },
+    /** Top-down map of the current area. big = the full map window (adds labels). */
+    drawAreaMap(cv, big) {
+      const W = global.World, def = W.area, C = global.Combat, P = global.Player, Q = global.Quests;
+      if (!cv || !def) return;
+      const dpr = Math.min(2, global.devicePixelRatio || 1), cw = cv.clientWidth || cv.width, ch = cv.clientHeight || cv.height;
+      if (cv.width !== Math.round(cw * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+      const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, cw, ch);
+      const [AW, AD] = def.size, sc = Math.min((cw - 16) / AW, (ch - 16) / AD), ox = cw / 2, oy = ch / 2;
+      const X = x => ox + x * sc, Y = z => oy + z * sc;
+      c.fillStyle = 'rgba(10,6,20,0.75)'; c.fillRect(0, 0, cw, ch);
+      c.fillStyle = '#' + new global.THREE.Color(def.floor).multiplyScalar(1.4).getHexString();
+      if (def.arena) { c.beginPath(); c.arc(ox, oy, (AW / 2 - 2.5) * sc, 0, Math.PI * 2); c.fill(); }
+      else c.fillRect(X(-AW / 2), Y(-AD / 2), AW * sc, AD * sc);
+      c.strokeStyle = '#a68b4f'; c.lineWidth = 2; c.strokeRect(X(-AW / 2), Y(-AD / 2), AW * sc, AD * sc);
+      const font = big ? 13 : 9;
+      c.font = `${font}px Georgia`; c.textAlign = 'center';
+      const label = (txt, x, y) => { const hw = c.measureText(txt).width / 2 + 4; c.fillText(txt, Math.max(hw, Math.min(cw - hw, x)), Math.max(12, Math.min(ch - 4, y))); };
+      // doors
+      (def.doors || []).forEach(d => {
+        c.fillStyle = '#7fe0ff'; c.fillRect(X(d.x) - 5, Y(d.z) - 5, 10, 10);
+        if (big) { c.fillStyle = '#bff2ff'; label('🚪 ' + d.label, X(d.x), Y(d.z) + (d.z > 0 ? -10 : 18)); }
+      });
+      (def.gates || []).filter(gd => gd.state !== 'decor').forEach(gd => {
+        const open = W.gates.find(x => x.def.id === gd.id && x.open);
+        c.fillStyle = open ? '#7dff9a' : gd.state === 'locked' ? '#ffc23d' : gd.state === 'sealed' ? '#4ab8ff' : gd.state === 'boss' ? '#a07aff' : '#e8b860';
+        c.fillRect(X(gd.x) - 4, Y(gd.z) - 3, 8, 6);
+      });
+      // shrines
+      Object.entries(SHRINES).filter(([, sh]) => sh.area === W.areaId && !def.arena).forEach(([id, sh]) => {
+        const on = (S.player.shrines || []).includes(id);
+        c.fillStyle = on ? '#c89aff' : 'rgba(200,154,255,0.35)';
+        c.beginPath(); c.moveTo(X(sh.x), Y(sh.z) - 6); c.lineTo(X(sh.x) + 5, Y(sh.z)); c.lineTo(X(sh.x), Y(sh.z) + 6); c.lineTo(X(sh.x) - 5, Y(sh.z)); c.fill();
+        if (big) { c.fillStyle = '#e0c8ff'; label(sh.name + (on ? '' : ' (not attuned)'), X(sh.x), Y(sh.z) - 9); }
+      });
+      // NPCs with quest markers
+      if (!def.arena) Object.entries(NPCS).filter(([, n]) => n.area === W.areaId).forEach(([id, n]) => {
+        c.fillStyle = '#ffe9b0'; c.beginPath(); c.arc(X(n.pos[0]), Y(n.pos[1]), big ? 5 : 3.5, 0, Math.PI * 2); c.fill();
+        const mk = Q.markerFor(id);
+        if (mk) { c.fillStyle = mk === '?' ? '#7dff7d' : '#ffd84a'; c.font = `bold ${font + 4}px Georgia`; c.fillText(mk, X(n.pos[0]), Y(n.pos[1]) - 6); c.font = `${font}px Georgia`; }
+        if (big) { c.fillStyle = '#ffe9b0'; label(n.name, X(n.pos[0]), Y(n.pos[1]) + 16); }
+      });
+      // enemies
+      for (const e of C.entities) {
+        if (e.dead || !(e.kind === 'enemy' || e.kind === 'wizard')) continue;
+        const boss = e.def && (e.def.boss || e.def.dragon);
+        c.fillStyle = e.def && e.def.training ? '#ffb070' : '#ff5a4a';
+        c.beginPath(); c.arc(X(e.pos.x), Y(e.pos.z), boss ? 6 : 3, 0, Math.PI * 2); c.fill();
+      }
+      // quest target
+      if (this.guideTarget) {
+        const gx = X(this.guideTarget.x), gy = Y(this.guideTarget.z);
+        c.fillStyle = '#ffd84a'; c.strokeStyle = '#000'; c.lineWidth = 1.5;
+        c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 3.5 : 8; c.lineTo(gx + Math.cos(a) * r, gy + Math.sin(a) * r); } c.closePath(); c.fill(); c.stroke();
+      }
+      // you
+      const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), px = X(P.pos.x), py = Y(P.pos.z), ang = Math.atan2(fz, fx);
+      c.save(); c.translate(px, py); c.rotate(ang);
+      c.fillStyle = '#ffffff'; c.strokeStyle = '#1a1030'; c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(8, 0); c.lineTo(-5, -5); c.lineTo(-2, 0); c.lineTo(-5, 5); c.closePath(); c.fill(); c.stroke();
+      c.restore();
+      if (!big) { c.fillStyle = '#ffe9b0'; c.font = '10px Georgia'; c.textAlign = 'left'; c.fillText(def.name, 6, ch - 6); }
+    },
+    /** World map: castle areas and how their doors connect. */
+    drawWorldMap(cv) {
+      const W = global.World, Q = global.Quests;
+      const dpr = Math.min(2, global.devicePixelRatio || 1), cw = cv.clientWidth, ch = cv.clientHeight;
+      cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+      const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, cw, ch);
+      const xs = Object.values(WORLD_MAP).map(v => v[0]), ys = Object.values(WORLD_MAP).map(v => v[1]);
+      const minX = Math.min(...xs), minY = Math.min(...ys), cols = Math.max(...xs) - minX + 1, rows = Math.max(...ys) - minY + 1, bw = cw / cols, bh = ch / rows;
+      const center = id => { const [gx, gy] = WORLD_MAP[id]; return [(gx - minX) * bw + bw / 2, (gy - minY) * bh + bh / 2]; };
+      const g = Q.guideFor(Q.guideQuest()), cur = (W.area && W.area.arena) ? global.Game.arena && global.Game.arena.srcId : W.areaId;
+      c.strokeStyle = '#7fe0ff'; c.lineWidth = 3;
+      Object.keys(WORLD_MAP).forEach(id => AREAS[id].doors.forEach(d => { if (!WORLD_MAP[d.to]) return; const [x1, y1] = center(id), [x2, y2] = center(d.to); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }));
+      Object.keys(WORLD_MAP).forEach(id => {
+        const [x, y] = center(id), w = bw * 0.78, h = bh * 0.62;
+        c.fillStyle = '#' + new global.THREE.Color(AREAS[id].floor).multiplyScalar(1.3).getHexString();
+        c.strokeStyle = id === cur ? '#ffffff' : '#a68b4f'; c.lineWidth = id === cur ? 3 : 1.5;
+        c.fillRect(x - w / 2, y - h / 2, w, h); c.strokeRect(x - w / 2, y - h / 2, w, h);
+        c.fillStyle = '#fff6e0'; c.font = 'bold 13px Georgia'; c.textAlign = 'center'; c.fillText(AREAS[id].name, x, y - 4);
+        const sh = Object.entries(SHRINES).find(([, s2]) => s2.area === id);
+        if (sh) { const on = (S.player.shrines || []).includes(sh[0]); c.fillStyle = on ? '#c89aff' : 'rgba(200,154,255,.4)'; c.font = '12px Georgia'; c.fillText(on ? '✦ shrine' : '✦ (not attuned)', x, y + 14); }
+        if (id === cur) { c.fillStyle = '#ffffff'; c.font = '12px Georgia'; c.fillText('▼ you are here', x, y - h / 2 - 4); }
+        if (g && g.area === id) { c.fillStyle = '#ffd84a'; c.font = 'bold 18px Georgia'; c.fillText('★', x + w / 2 - 12, y - h / 2 + 18); }
+      });
+    },
+    toggleMap() { if (isShown('map')) { show('map', false); this.afterModal(); } else this.openMap(); },
+    openMap() {
+      if (global.Game.mode !== 'explore') return;
+      show('map');
+      const q = global.Quests.guideQuest(), g = global.Quests.guideFor(q);
+      $('map-quest').innerHTML = q && g ? `📜 <b>${esc(q.title)}</b>: ${esc(g.text)}${g.area ? ` <span class="muted">(${AREAS[g.area].name})</span>` : ''} <span class="muted">— the ★ marks it</span>` : '<span class="muted">No quest to follow right now.</span>';
+      const inBattle = !!global.Game.arena;
+      $('map-travel').innerHTML = '<h3>✦ Quick travel</h3>' + Object.entries(SHRINES).map(([id, sh]) => {
+        const on = (S.player.shrines || []).includes(id);
+        return `<div class="trow ${on ? '' : 'off'}"><span>✦ ${esc(sh.name)} <span class="muted">${AREAS[sh.area].name}</span></span>` +
+          (on ? `<button data-travel="${id}" ${inBattle ? 'disabled' : ''}>Travel</button>` : '<span class="muted">touch it first</span>') + '</div>';
+      }).join('') + (inBattle ? '<p class="muted">You cannot travel during a battle.</p>' : '');
+      $('map-travel').querySelectorAll('[data-travel]').forEach(b => b.onclick = () => { show('map', false); global.World.teleportToShrine(b.dataset.travel); this.toast(`Travelled to ${SHRINES[b.dataset.travel].name}.`, 'spell'); this.afterModal(); });
+      requestAnimationFrame(() => { this.drawWorldMap($('worldmap')); this.drawAreaMap($('areamap'), true); });
+    },
+
     /* ------------------------- Practice duel ------------------------- */
     duelStart() {
       const box = $('duel-bars'); box.innerHTML = '';
@@ -387,7 +523,8 @@
       const rewardItems = q => (q.rewards.items || []).map(id => `${ITEMS[id].icon} ${ITEMS[id].name}`);
       const reward = q => `<div class="muted">Reward: ${q.rewards.xp} XP${rewardSpells(q).length ? ' · Spell: ' + rewardSpells(q).join(', ') : ''}${rewardItems(q).length ? ' · Item: ' + rewardItems(q).join(', ') : ''}</div>`;
       $('questlog-body').innerHTML =
-        sec('Active', active, q => `<div class="quest"><b>${q.title}</b> <span class="muted">from ${NPCS[q.giver].name}</span><p>${q.summary}</p>` +
+        sec('Active', active, q => `<div class="quest"><b>${q.title}</b> <span class="muted">from ${NPCS[q.giver].name}</span> ` +
+          (global.Quests.guideQuest() === q ? '<span class="ready">📍 Tracking</span>' : `<button class="mini" data-track="${q.id}">📍 Track</button>`) + `<p>${q.summary}</p>` +
           (Q.stateOf(q.id) === 'ready' ? `<div class="ready">✔ Objectives complete — return to ${NPCS[q.turnIn].name}</div>` :
             q.objectives.map((o, i) => `<div>☐ ${o.text}${o.type === 'talk' ? '' : ` (${Q.progressOf(q, i)}/${o.count})`}</div>`).join('')) + reward(q) + '</div>') +
         sec('Available', avail, q => `<div class="quest dim"><b>${q.title}</b> <span class="muted">— talk to ${NPCS[q.giver].name} (${AREAS[NPCS[q.giver].area].name})</span></div>`) +

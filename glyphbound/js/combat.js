@@ -250,9 +250,9 @@
         const op = 0.6 + (e.rimU.value > 0 ? 0.25 : 0);
         e.mesh.traverse(o => { if (o.material && o.material.transparent) o.material.opacity = op; });
       }
-      if (e.kind === 'wizard') {                       // CPU wizards visibly float while levitating
-        const y = e.statuses.levitate ? 1.2 : 0;
-        e.pos.y += (y - e.pos.y) * 0.15;
+      if (e.kind === 'wizard' && e.mesh) {             // CPU wizards visibly float while levitating
+        const y = e.statuses.levitate ? 1.2 : 0, ud = e.mesh.userData;
+        ud.lift = (ud.lift || 0) + (y - (ud.lift || 0)) * 0.15;
       }
       if (e.plate) {
         const top = (e.def ? (e.def.dragon ? 3.6 : 2.4) * (e.def.look.scale || 1) : 2.6) + 0.3;

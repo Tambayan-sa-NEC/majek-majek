@@ -27,6 +27,8 @@
       W.onInteractPrompt = it => UI.setPrompt(it);
       W.onAreaChange = def => { C.saveToState(); UI.setArea(def.name); if (this.mode === 'explore') UI.renderHud(); W.refreshMarkers(); };
       W.onTalk = id => UI.openDialogue(global.Quests.dialogueFor(id));
+      W.onShrine = () => UI.openMap();                              // attuned shrine → map with quick travel
+      S.Events.on('shrines', () => { UI._guideKey = ''; });
       W.onSecret = (name, text) => UI.openDialogue({ speaker: name, pages: [text], choices: [{ text: 'Close', action: null }] });
       C.onPlayerDeath = () => this.onPlayerDeath();
       C.onDuelEnd = won => this.onDuelEnd(won);
