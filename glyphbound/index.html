@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Glyphbound: Tales of Thornwick</title>
+<link rel="stylesheet" href="style.css">
+<!-- Three.js (bundled locally, works offline) + game modules. Classic scripts so the game runs from file:// -->
+<script src="lib/three.min.js"></script>
+<script src="js/recognizer.js"></script>
+<script src="js/data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/quests.js"></script>
+<script src="js/models.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/drawing.js"></script>
+<script src="js/world.js"></script>
+<script src="js/player.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<div id="loading"><div>Summoning the castle…</div><small id="loading-err"></small></div>
+
+<!-- ============================ HUD ============================ -->
+<div id="hud" class="hidden">
+  <div id="crosshair"><i></i></div>
+  <div id="cast-chip" class="chip hidden"></div>
+  <div id="hud-player" class="panel">
+    <div class="story-only lvl-row"><span id="hud-level">Level 1</span><span id="hud-gold">🪙 0</span></div>
+    <div class="bar hp" id="hud-hp"><i id="hud-hp-fill"></i><span id="hud-hp-txt"></span></div>
+    <div class="bar mp" id="hud-mp"><i id="hud-mp-fill"></i><span id="hud-mp-txt"></span></div>
+    <div class="bar xp story-only" id="hud-xp"><i></i><span></span></div>
+    <div id="hud-status"></div>
+  </div>
+  <div id="hud-tracker" class="story-only"></div>
+  <div id="duel-bars" class="duel-only"></div>
+  <div id="area-name"></div>
+  <div id="foe-info" class="hidden"></div>
+  <div id="boss-bar" class="hidden"><div id="boss-name"></div><div class="bar boss"><i id="boss-fill"></i></div></div>
+  <div id="hud-buttons">
+    <button id="btn-flee" class="hidden" title="Flee the battle (F)">🏃 Flee <kbd>F</kbd></button>
+    <button id="btn-light" title="Wandlight (L)">🪄 <kbd>L</kbd></button>
+    <button id="btn-quests" class="story-only" title="Quest Log (Q)">📜 <kbd>Q</kbd></button>
+    <button id="btn-book" class="story-only" title="Spellbook (B)">📖 <kbd>B</kbd></button>
+    <button id="btn-inv" class="story-only" title="Inventory (I)">🎒 <kbd>I</kbd></button>
+    <button id="btn-pause" title="Menu (Esc)">☰</button>
+  </div>
+  <div id="quickbar"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="save-ind">💾 saved</div>
+  <button id="btn-draw" class="touch-only" title="Switch your finger between drawing and looking">👁 Look</button>
+  <div id="threats"></div>
+  <div id="dmg-dir"></div>
+</div>
+<div id="floaters"></div>
+<div id="vignette"></div>
+<div id="flash"></div>
+<canvas id="draw-canvas"></canvas>
+<div id="click-play" class="hidden"><div><b>Click to play</b><small>Mouse looks · hold LEFT mouse and draw a glyph to cast · Esc pauses</small></div></div>
+<div id="death" class="hidden"><div id="death-text"></div></div>
+<div id="stick"><div id="stick-knob"></div></div>
+<div id="toasts"></div>
+<div id="levelup" class="hidden"></div>
+
+<!-- ========================= Dialogue ========================== -->
+<div id="dialogue" class="hidden panel">
+  <div id="dlg-name"></div>
+  <div id="dlg-text"></div>
+  <div id="dlg-choices"></div>
+</div>
+
+<!-- ========================= Quest log ========================= -->
+<div id="questlog" class="modal hidden"><div class="modal-box">
+  <button class="x" data-close="questlog">✕</button>
+  <h2>📜 Quest Log</h2>
+  <div id="questlog-body"></div>
+</div></div>
+
+<!-- ========================= Inventory ========================= -->
+<div id="inventory" class="modal hidden"><div class="modal-box wide">
+  <button class="x" data-close="inventory">✕</button>
+  <h2>🎒 Inventory</h2>
+  <div id="inventory-body"></div>
+</div></div>
+
+<!-- =========================== Shop ============================ -->
+<div id="shop" class="modal hidden"><div class="modal-box wide">
+  <button class="x" data-close="shop">✕</button>
+  <h2 id="shop-title">🛒 Shop</h2>
+  <p id="shop-gold" class="gold-line"></p>
+  <div id="shop-body"></div>
+</div></div>
+
+<!-- ========================= Spellbook ========================= -->
+<div id="spellbook" class="modal hidden"><div class="modal-box wide">
+  <button class="x" data-close="spellbook">✕</button>
+  <h2>📖 Spellbook <small id="sb-count"></small></h2>
+  <p id="sb-rules" class="muted"></p>
+  <div id="spellbook-grid"></div>
+</div></div>
+
+<!-- ========================== Lesson =========================== -->
+<div id="lesson" class="modal hidden"><div class="modal-box lesson-box">
+  <h2 id="lesson-title"></h2>
+  <div id="lesson-info"></div>
+  <canvas id="lesson-canvas"></canvas>
+  <div id="lesson-feedback"></div>
+  <div class="row"><button id="lesson-replay">▶ Watch again</button><button id="lesson-close">Done</button></div>
+</div></div>
+
+<div id="duel-result" class="modal hidden"><div class="modal-box small">
+  <h2 id="result-title"></h2><p id="result-body"></p>
+  <div class="row"><button id="result-again" class="glow">Rematch</button><button id="result-menu">Main Menu</button></div>
+</div></div>
+
+<!-- ========================= Menus ============================= -->
+<div id="menu" class="modal hidden"><div class="title-box">
+  <h1>Glyphbound</h1>
+  <h3>Tales of Thornwick Academy</h3>
+  <p class="muted">Draw glyphs. Cast spells. Uncover the castle's secrets.</p>
+  <button id="m-continue">Continue</button>
+  <button id="m-new">New Game</button>
+  <button id="m-duel">⚔ Practice Duel vs CPU</button>
+  <button id="m-how">How to Play</button>
+</div></div>
+
+<div id="how-to" class="modal hidden"><div class="modal-box">
+  <button class="x" data-close="how-to">✕</button>
+  <h2>How to Play</h2>
+  <ul>
+    <li><b>Move:</b> WASD / arrow keys, Shift to sprint. <b>Look:</b> move the mouse (click the game once to capture the mouse; Esc releases it).</li>
+    <li><b>Cast:</b> hold the LEFT mouse button, draw a spell's glyph in one stroke, release. The spell flies where the crosshair points. There are no turns: draw as fast as you can and spam spells while you have mana.</li>
+    <li><b>Precision matters:</b> 92%+ is <i>Perfect</i> (fastest, full power, may crit). Down to 78% still casts but is weaker, slower and costs more mana. A dashed ghost shows which glyph the game thinks you are drawing.</li>
+    <li><b>Mana</b> refills every second. HP slowly refills when nothing has hurt you for 5 seconds. Rest at the Great Hall hearth to refill everything.</li>
+    <li><b>Enemies</b> glow before they attack. Dragons mark the ground where their breath or dive will land: step out of the red area.</li>
+    <li><b>Levitate:</b> draw the rising chevrons to float for 2.5 seconds; enemy shots, breath and ground attacks miss you while you float.</li>
+    <li><b>Inventory</b> <kbd>I</kbd>: equip one <b>staff</b> (more damage, boosts to certain spells, some even grant a spell) and one <b>hat</b> (more HP or mana, faster mana, stronger shields, shorter cooldowns). Enemies drop them, quests reward them, and some are hidden (look with Wandlight).</li>
+    <li><b>Gold &amp; shop:</b> beaten enemies, quests and chests give gold. Talk to <b>Tilly Wrenfeather</b> in the Great Hall to buy staffs, hats and potions, or sell gear. Items show green/red differences against what you wear. Potions: <kbd>1</kbd> Health, <kbd>2</kbd> Mana.</li>
+    <li><b>Weaknesses:</b> nameplates show what an enemy is weak to (e.g. Weak 🔥); in battle a line tells you which of your spells to use.</li>
+    <li><b>Training Dummy:</b> in the east of the Great Hall. Press <kbd>E</kbd> to practise drawing, interrupting and Levitate safely.</li>
+    <li><b>Wandlight:</b> press <kbd>L</kbd> (or draw the check-mark) to light your wand. It lights dark places, outlines enemies and reveals hidden runes.</li>
+    <li><b>Doors:</b> press <kbd>E</kbd> to open. Locked doors need a key; sealed doors break when hit by the right spell.</li>
+    <li><b>Interact:</b> <kbd>E</kbd> talks, opens chests, picks up items. <b>Quest Log</b> <kbd>Q</kbd>, <b>Spellbook</b> <kbd>B</kbd> (practise any glyph there).</li>
+    <li><b>No mouse capture?</b> Open the game with <code>index.html?nolock</code>: hold LEFT to draw at the cursor, hold RIGHT and drag to look.</li>
+    <li><b>Touchscreen PC or laptop:</b> touch the screen and draw a glyph with your finger, lift to cast. Keep using the keyboard to move and the mouse to look.</li>
+    <li><b>Tablet mode / phone:</b> left thumb moves; draw glyphs with a finger on the right side. Tap 👁 Look to drag the view instead, ✋ Draw to switch back.</li>
+    <li><b>Battles:</b> enemies never attack you on their own. Walk up to one and press <kbd>E</kbd> (⚔ Fight) to start a one-on-one battle in an arena. In the arena nobody walks: you and your foes stand your ground and only cast. A Perfect or Great hit while a foe is glowing to attack interrupts it. Win to return to the same spot. Press <kbd>F</kbd> (🏃 Flee) to escape, except from bosses and dragons.</li>
+    <li><b>Practice Duel:</b> you against 1–5 CPU wizards, every spell unlocked, 400 HP, 800 mana.</li>
+  </ul>
+</div></div>
+
+<div id="pause" class="modal hidden"><div class="modal-box small">
+  <h2>Paused</h2>
+  <div class="col">
+    <button id="pm-resume" class="glow">Resume</button>
+    <button id="pm-save">Save Game</button>
+    <button id="pm-ghost">Drawing guide: ON</button>
+    <button id="pm-shake">Screen shake: ON</button>
+    <button id="pm-bob">Head bob: ON</button>
+    <button id="pm-menu">Save &amp; Quit to Menu</button>
+  </div>
+</div></div>
+
+<div id="duel-setup" class="modal hidden"><div class="modal-box small">
+  <h2>⚔ Practice Duel</h2>
+  <p class="muted">You against CPU wizards in real time · every spell unlocked · 400 HP · 800 mana</p>
+  <label>Opponents <select id="duel-count"></select></label>
+  <div class="row"><button id="duel-back">Back</button><button id="duel-start" class="glow">Start Duel</button></div>
+</div></div>
+
+<!-- ============================ Boot ============================ -->
+<script type="module">
+  try {
+    if (!window.THREE) window.THREE = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'); // fallback only
+    window.Game.boot();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('loading-err').textContent = 'Could not start: ' + err.message + ' (is lib/three.min.js present next to index.html?)';
+  }
+</script>
+</body>
+</html>
